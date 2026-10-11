@@ -11,7 +11,7 @@ import { parseArgs } from 'node:util';
 import type { Sandbox, Sandboxes } from '@docker/sandboxes';
 import { analystPrompt, builderPrompt, DEFAULT_PERSONAS, shopperPrompt, type Persona } from './prompts.js';
 import {
-  anthropicSecret, APP_DIR, banner, claude, color, connect, destroy, extractJson, launchShop, log,
+  APP_DIR, banner, color, connect, destroy, extractJson, launchShop, log, openaiSecret, runAgent,
 } from './sbx.js';
 
 interface Session {
@@ -41,7 +41,7 @@ async function simulate(sandbox: Sandbox, armId: string, personas: Persona[]): P
     personas.map(async (p) => {
       log(`${armId}:${p.id}`, 'shopping...');
       try {
-        const s = extractJson<Session>(await claude(sandbox, shopperPrompt(p, GOAL), 300_000));
+        const s = extractJson<Session>(await runAgent(sandbox, shopperPrompt(p, GOAL), 300_000));
         log(`${armId}:${p.id}`, `score ${s.score}/10, ${s.completed ? 'completed' : 'gave up'}, ~${s.steps} steps. "${s.quote}"`);
         return s;
       } catch (e) {
@@ -66,8 +66,8 @@ async function runVariant(client: Sandboxes, secret: string, v: Variant): Promis
   log(tag, `launching sandbox for "${v.title}"`);
   const { sandbox, url } = await launchShop(client, `ab-${v.id}-${slug(v.title)}`, secret, 'app');
   log(tag, `live at ${url}`);
-  log(tag, 'Claude Code is building the variant...');
-  const buildNotes = await claude(sandbox, builderPrompt(v), 900_000);
+  log(tag, 'Codex is building the variant...');
+  const buildNotes = await runAgent(sandbox, builderPrompt(v), 900_000);
   log(tag, `built. ${buildNotes.split('\n').filter(Boolean).pop()?.slice(0, 160) ?? ''}`);
   const sessions = await simulate(sandbox, tag, PERSONAS);
   return { id: v.id, title: v.title, url, sandbox, sessions, buildNotes, ...stats(sessions) };
@@ -79,7 +79,7 @@ async function main() {
   const client = await connect();
   const sandboxes: Sandbox[] = [];
   try {
-    const secret = await anthropicSecret(client);
+    const secret = await openaiSecret(client);
 
     // 1. Baseline
     banner('1. Deploy baseline (A)');
@@ -95,7 +95,7 @@ async function main() {
     // 3. Analyst proposes variants
     banner('3. Analyse friction, propose variants');
     const plan = extractJson<{ summary: string; variants: Variant[] }>(
-      await claude(base.sandbox, analystPrompt(GOAL, baseSessions, N_VARIANTS)),
+      await runAgent(base.sandbox, analystPrompt(GOAL, baseSessions, N_VARIANTS)),
     );
     const variants = plan.variants.slice(0, N_VARIANTS);
     log('analyst', plan.summary);

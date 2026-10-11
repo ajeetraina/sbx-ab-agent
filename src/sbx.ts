@@ -1,4 +1,5 @@
 // Thin helpers over the Docker Sandboxes TypeScript SDK (@docker/sandboxes).
+import { randomUUID } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
@@ -31,20 +32,30 @@ export async function connect(): Promise<Sandboxes> {
   return new Sandboxes({ auth });
 }
 
-// ---------- Anthropic key as a stored secret (never put in env or args) ----------
-export async function anthropicSecret(client: Sandboxes): Promise<string> {
-  if (process.env.ANTHROPIC_SECRET) return process.env.ANTHROPIC_SECRET; // e.g. "secrets/abc123"
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) {
-    throw new Error('Set ANTHROPIC_SECRET (existing secret resource name) or ANTHROPIC_API_KEY.');
+// ---------- OpenAI key as a stored secret (never put in env or args) ----------
+// Returns a secret resource name to attach to each sandbox. The sandbox proxy uses it to inject the
+// Authorization header on Codex's calls to api.openai.com. The secret must be attached explicitly:
+// unlike the `sbx` CLI, the SDK does not auto-attach the globally stored OpenAI secret.
+export async function openaiSecret(client: Sandboxes): Promise<string> {
+  if (process.env.OPENAI_SECRET) return process.env.OPENAI_SECRET; // e.g. "secrets/abc123"
+  const key = process.env.OPENAI_API_KEY;
+  if (key) {
+    const secret = await client.secrets.create({
+      displayName: 'sbx-ab-agent-openai',
+      serviceType: 'openai',
+      token: { value: key },
+    });
+    log('secret', `stored OpenAI key as ${secret.name} (export OPENAI_SECRET=${secret.name} to reuse)`);
+    return secret.name;
   }
-  const secret = await client.secrets.create({
-    displayName: 'sbx-ab-agent-anthropic',
-    serviceType: 'anthropic',
-    token: { value: key },
-  });
-  log('secret', `stored Anthropic key as ${secret.name} (export ANTHROPIC_SECRET=${secret.name} to reuse)`);
-  return secret.name;
+  // No key in the env: reuse an already-stored OpenAI secret so the demo runs without one in .env.
+  for await (const s of client.secrets.all()) {
+    if ((s as { serviceType?: string }).serviceType === 'openai') {
+      log('secret', `using existing OpenAI secret ${s.name}`);
+      return s.name;
+    }
+  }
+  throw new Error('No OpenAI credential: set OPENAI_API_KEY or OPENAI_SECRET, or run `sbx secret set openai`.');
 }
 
 // ---------- sandbox lifecycle ----------
@@ -54,7 +65,7 @@ export async function launchShop(
   secret: string,
   localAppDir: string,
 ): Promise<{ sandbox: Sandbox; url: string }> {
-  const sandbox = await client.kits.launchAndWait('claude', {
+  const sandbox = await client.kits.launchAndWait('codex', {
     displayName,
     resources: 'small',
     storage: { secrets: [secret] },
@@ -100,21 +111,28 @@ export async function destroy(sandbox: Sandbox) {
   }
 }
 
-// ---------- run Claude Code headless inside a sandbox ----------
-export async function claude(sandbox: Sandbox, prompt: string, timeoutMs = 600_000): Promise<string> {
+// ---------- run Codex (OpenAI) headless inside a sandbox ----------
+// `codex exec` is the non-interactive mode. We're already inside a microVM, so we bypass Codex's
+// own approval+sandbox layer. The prompt is fed on stdin with the `-` argument (passing it as a
+// positional arg makes codex still block reading stdin and exit 1). `-o` writes just the final
+// assistant message to a file, which we read back (cleaner than parsing the --json event stream).
+// A unique output file per call keeps parallel sessions on one sandbox from colliding.
+export async function runAgent(sandbox: Sandbox, prompt: string, timeoutMs = 600_000): Promise<string> {
+  const outFile = `/tmp/codex-${randomUUID()}.out`;
+  const script =
+    `printf '%s' "$1" | codex exec -C ${APP_DIR} --skip-git-repo-check --ephemeral ` +
+    `--dangerously-bypass-approvals-and-sandbox -o ${outFile} -`;
   const r = await sandbox.processes.run(
-    {
-      args: ['claude', '-p', prompt, '--output-format', 'json', '--dangerously-skip-permissions'],
-      workingDir: APP_DIR,
-      env: { IS_SANDBOX: '1' },
-    },
+    { args: ['bash', '-lc', script, 'bash', prompt], workingDir: APP_DIR },
     { timeoutMs },
   );
   if (r.exitCode !== 0) {
-    throw new Error(`claude exited ${r.exitCode} in ${sandbox.name}: ${r.stderr.slice(0, 500)}`);
+    // The real error is at the tail; the head is just codex's startup banner.
+    const out = `${r.stderr ?? ''}\n${r.stdout ?? ''}`.trim();
+    throw new Error(`codex exited ${r.exitCode} in ${sandbox.name}: ${out.slice(-800)}`);
   }
   try {
-    return String(JSON.parse(r.stdout).result ?? r.stdout);
+    return await sandbox.files.read(outFile, { encoding: 'utf8' });
   } catch {
     return r.stdout;
   }
