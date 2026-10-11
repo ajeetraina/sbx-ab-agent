@@ -1,0 +1,25 @@
+{
+  "name": "sbx-ab-agent",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "tsx src/ab.ts",
+    "cleanup": "tsx src/cleanup.ts",
+    "typecheck": "tsc",
+    "shop": "cd app && node server.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@docker/sandboxes": "^0.53.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,14 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, sans-serif; background: #f6f7f9; color: #1d2433; }
+header { padding: 24px 16px; background: #1d63ed; color: #fff; }
+header h1 { margin: 0; font-size: 28px; }
+.tagline { margin: 4px 0 0; opacity: .85; }
+main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+.count { color: #5b6475; }
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.card { background: #fff; border-radius: 10px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.emoji { font-size: 40px; }
+.card h2 { font-size: 16px; margin: 8px 0 4px; }
+.meta { font-size: 13px; color: #5b6475; margin: 0; }
+.price { font-weight: 700; margin: 8px 0; }
+button { background: #1d63ed; color: #fff; border: 0; border-radius: 6px; padding: 8px 12px; cursor: pointer; }

@@ -1,0 +1,252 @@
+[
+  {
+    "id": 13,
+    "name": "Retro Sticker",
+    "category": "Stickers",
+    "price": 4.99,
+    "sizes": [
+      "One size"
+    ],
+    "emoji": "🏷️"
+  },
+  {
+    "id": 15,
+    "name": "Coffee && Code Mug",
+    "category": "Mugs",
+    "price": 12.99,
+    "sizes": [
+      "One size"
+    ],
+    "emoji": "☕"
+  },
+  {
+    "id": 12,
+    "name": "Laptop Sticker Set",
+    "category": "Stickers",
+    "price": 2.99,
+    "sizes": [
+      "One size"
+    ],
+    "emoji": "🏷️"
+  },
+  {
+    "id": 8,
+    "name": "Pull Request Tee",
+    "category": "T-Shirts",
+    "price": 21.99,
+    "sizes": [
+      "S",
+      "M",
+      "L",
+      "XL"
+    ],
+    "emoji": "👕"
+  },
+  {
+    "id": 7,
+    "name": "Hello World Tee",
+    "category": "T-Shirts",
+    "price": 15.99,
+    "sizes": [
+      "S",
+      "M",
+      "L",
+      "XL"
+    ],
+    "emoji": "👕"
+  },
+  {
+    "id": 19,
+    "name": "Beanie",
+    "category": "Caps",
+    "price": 25.99,
+    "sizes": [
+      "One size"
+    ],
+    "emoji": "🧢"
+  },
+  {
+    "id": 1,
+    "name": "Whale Zip Hoodie",
+    "category": "Hoodies",
+    "price": 48.99,
+    "sizes": [
+      "S",
+      "M",
+      "L",
+      "XL"
+    ],
+    "emoji": "🧥"
+  },
+  {
+    "id": 6,
+    "name": "Layer Cake Tee",
+    "category": "T-Shirts",
+    "price": 19.99,
+    "sizes": [
+      "S",
+      "M",
+      "L",
+      "XL"
+    ],
+    "emoji": "👕"
+  },
+  {
+    "id": 17,
+    "name": "Dad Cap",
+    "category": "Caps",
+    "price": 26.99,
+    "sizes": [
+      "One size"
+    ],
+    "emoji": "🧢"
+  },
+  {
+    "id": 16,
+    "name": "Enamel Camp Mug",
+    "category": "Mugs",
+    "price": 13.99,
+    "sizes": [
+      "One size"
+    ],
+    "emoji": "☕"
+  },
+  {
+    "id": 2,
+    "name": "Container Crew Hoodie",
+    "category": "Hoodies",
+    "price": 43.99,
+    "sizes": [
+      "S",
+      "M",
+      "L",
+      "XL"
+    ],
+    "emoji": "🧥"
+  },
+  {
+    "id": 3,
+    "name": "Midnight Build Hoodie",
+    "category": "Hoodies",
+    "price": 58.99,
+    "sizes": [
+      "S",
+      "M",
+      "L",
+      "XL"
+    ],
+    "emoji": "🧥"
+  },
+  {
+    "id": 11,
+    "name": "Holo Logo Sticker",
+    "category": "Stickers",
+    "price": 1.99,
+    "sizes": [
+      "One size"
+    ],
+    "emoji": "🏷️"
+  },
+  {
+    "id": 20,
+    "name": "Whale Socks",
+    "category": "Socks",
+    "price": 9.99,
+    "sizes": [
+      "S/M",
+      "L/XL"
+    ],
+    "emoji": "🧦"
+  },
+  {
+    "id": 9,
+    "name": "Microservice Tee",
+    "category": "T-Shirts",
+    "price": 15.99,
+    "sizes": [
+      "S",
+      "M",
+      "L",
+      "XL"
+    ],
+    "emoji": "👕"
+  },
+  {
+    "id": 21,
+    "name": "Stack Socks",
+    "category": "Socks",
+    "price": 13.99,
+    "sizes": [
+      "S/M",
+      "L/XL"
+    ],
+    "emoji": "🧦"
+  },
+  {
+    "id": 4,
+    "name": "Ship It Hoodie",
+    "category": "Hoodies",
+    "price": 40.99,
+    "sizes": [
+      "S",
+      "M",
+      "L",
+      "XL"
+    ],
+    "emoji": "🧥"
+  },
+  {
+    "id": 18,
+    "name": "Snapback Cap",
+    "category": "Caps",
+    "price": 30.99,
+    "sizes": [
+      "One size"
+    ],
+    "emoji": "🧢"
+  },
+  {
+    "id": 22,
+    "name": "Pixel Socks",
+    "category": "Socks",
+    "price": 7.99,
+    "sizes": [
+      "S/M",
+      "L/XL"
+    ],
+    "emoji": "🧦"
+  },
+  {
+    "id": 14,
+    "name": "Build Cache Mug",
+    "category": "Mugs",
+    "price": 19.99,
+    "sizes": [
+      "One size"
+    ],
+    "emoji": "☕"
+  },
+  {
+    "id": 10,
+    "name": "Whale Sticker Pack",
+    "category": "Stickers",
+    "price": 4.99,
+    "sizes": [
+      "One size"
+    ],
+    "emoji": "🏷️"
+  },
+  {
+    "id": 5,
+    "name": "Compose Up Tee",
+    "category": "T-Shirts",
+    "price": 22.99,
+    "sizes": [
+      "S",
+      "M",
+      "L",
+      "XL"
+    ],
+    "emoji": "👕"
+  }
+]
