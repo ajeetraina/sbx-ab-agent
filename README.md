@@ -66,7 +66,29 @@ npm start                              # 2 variants, 3 personas
 npm start -- --variants 3 --personas 2
 npm start -- --goal "Users can't tell which items are on sale"
 npm start -- --cleanup                 # delete sandboxes at the end
+npm start -- --no-dashboard            # skip the live dashboard
+npm start -- --dashboard-port 4100     # serve the dashboard on a different port
 ```
+
+### Live dashboard
+
+While a run is going, open **http://localhost:4000** to watch it happen on screen instead of
+reading the logs: the pipeline stages (deploy → shop → analyze → build → winner) light up as they
+run, and a tile per arm (A, B, C…) moves through *deploying → building → scored* with each persona's
+score, the lift vs A, and the winner. It starts automatically; turn it off with `--no-dashboard` or
+move it with `--dashboard-port`. The dashboard keeps serving after a (non-`--cleanup`) run finishes,
+so press `Ctrl+C` in the terminal when you're done.
+
+### Ports, so there's no confusion
+
+| URL | Where it runs | What it is |
+|---|---|---|
+| `http://localhost:4000` | **your machine** | the live dashboard (above) |
+| `https://3000-….sbx.sandboxes-cloud.docker.com` | **the cloud sandbox** | each arm's actual shop (A, B, …); the script prints one per arm |
+| `http://localhost:3000` | **your machine** | only when you run `npm run shop` to preview the baseline shop locally |
+
+`3000` is the shop's port *inside each sandbox* — you reach it through the public `3000-….docker.com`
+URL, not `localhost`, unless you run `npm run shop` yourself.
 
 Without `DOCKER_USERNAME`/`DOCKER_PAT`, the script prints a sign-in link and code. The sign-in is cached in
 `.docker-sandboxes/oauth.json` (plaintext, git-ignored) so re-runs during the demo don't ask again.
