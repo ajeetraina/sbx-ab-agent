@@ -59,11 +59,17 @@ export async function openaiSecret(client: Sandboxes): Promise<string> {
 }
 
 // ---------- sandbox lifecycle ----------
+// Where the app code comes from: a local directory copied in (the bundled demo shop),
+// or a git repo cloned inside the sandbox (Daytona-style — point at any GitHub URL).
+export type AppSource =
+  | { localDir: string }
+  | { repo: string; branch?: string; subdir?: string; start?: string };
+
 export async function launchShop(
   client: Sandboxes,
   displayName: string,
   secret: string,
-  localAppDir: string,
+  source: AppSource,
 ): Promise<{ sandbox: Sandbox; url: string }> {
   const sandbox = await client.kits.launchAndWait('codex', {
     displayName,
@@ -71,15 +77,44 @@ export async function launchShop(
     storage: { secrets: [secret] },
   });
 
-  // Copy the app in through the files API.
-  await sandbox.files.mkdir(APP_DIR, { mode: 0o755, parents: true });
-  for (const f of await readdir(localAppDir)) {
-    await sandbox.files.write(`${APP_DIR}/${f}`, await readFile(join(localAppDir, f), 'utf8'));
+  let startArgs: string[] = ['node', 'server.mjs'];
+  if ('repo' in source) {
+    // Clone a GitHub repo into the sandbox. Private repos authenticate through the stored
+    // `github` secret, injected by the proxy — the token never lands in the filesystem.
+    const branchArgs = source.branch ? ['-b', source.branch] : [];
+    const clone = await sandbox.processes.run(
+      { args: ['git', 'clone', '--depth', '1', ...branchArgs, source.repo, '/tmp/_src'], workingDir: '/tmp' },
+      { timeoutMs: 180_000 },
+    );
+    if (clone.exitCode !== 0) throw new Error(`git clone failed: ${(clone.stderr || clone.stdout).slice(-400)}`);
+    const srcDir = source.subdir ? `/tmp/_src/${source.subdir}` : '/tmp/_src';
+    const copy = await sandbox.processes.run(
+      { args: ['bash', '-lc', `mkdir -p ${APP_DIR} && cp -a ${srcDir}/. ${APP_DIR}/`] },
+      { timeoutMs: 60_000 },
+    );
+    if (copy.exitCode !== 0) throw new Error(`copying ${srcDir} into ${APP_DIR} failed: ${(copy.stderr || copy.stdout).slice(-400)}`);
+    const hasPkg = (await sandbox.processes.run({ args: ['test', '-f', `${APP_DIR}/package.json`] })).exitCode === 0;
+    const hasServer = (await sandbox.processes.run({ args: ['test', '-f', `${APP_DIR}/server.mjs`] })).exitCode === 0;
+    if (hasPkg) {
+      const install = await sandbox.processes.run(
+        { args: ['npm', 'install', '--no-audit', '--no-fund'], workingDir: APP_DIR },
+        { timeoutMs: 300_000 },
+      );
+      if (install.exitCode !== 0) throw new Error(`npm install failed: ${(install.stderr || install.stdout).slice(-400)}`);
+    }
+    // Start command: explicit --start wins, else node server.mjs, else `npm start`.
+    startArgs = source.start ? ['bash', '-lc', source.start] : hasServer ? ['node', 'server.mjs'] : ['npm', 'start'];
+  } else {
+    // Copy a local app directory in through the files API (the bundled demo shop).
+    await sandbox.files.mkdir(APP_DIR, { mode: 0o755, parents: true });
+    for (const f of await readdir(source.localDir)) {
+      await sandbox.files.write(`${APP_DIR}/${f}`, await readFile(join(source.localDir, f), 'utf8'));
+    }
   }
 
-  // Start the server as a long-running process (we don't attach to it).
+  // Start the server as a long-running process (we don't attach to it). It must listen on $PORT.
   await sandbox.processes.start({
-    args: ['node', 'server.mjs'],
+    args: startArgs,
     workingDir: APP_DIR,
     env: { PORT: String(APP_PORT) },
     label: 'shop-server',

@@ -62,13 +62,41 @@ npm install
 cp .env.example .env     # fill in OPENAI_API_KEY (and optionally DOCKER_USERNAME / DOCKER_PAT)
 set -a; source .env; set +a
 
-npm start                              # 2 variants, 3 personas
+npm start                              # 2 variants, 3 personas, bundled shop
 npm start -- --variants 3 --personas 2
 npm start -- --goal "Users can't tell which items are on sale"
 npm start -- --cleanup                 # delete sandboxes at the end
 npm start -- --no-dashboard            # skip the live dashboard
 npm start -- --dashboard-port 4100     # serve the dashboard on a different port
+
+# Run against your own repo instead of the bundled shop (Daytona-style):
+npm start -- --repo https://github.com/you/your-shop
+npm start -- --repo https://github.com/you/your-shop --branch dev --subdir app
+npm start -- --repo https://github.com/you/your-shop --start "npm run serve"
+
+# Serve mode: keep the dashboard up and trigger runs from the browser form:
+npm start -- --serve
 ```
+
+### Two ways to point it at code
+
+| Source | How | Notes |
+|---|---|---|
+| **Bundled shop** (default) | *(nothing)* | copied into each sandbox via the files API |
+| **A GitHub repo** | `--repo <url>` | cloned *inside* each sandbox; `--branch`, `--subdir` (if the app lives in a subfolder), and `--start` (custom start command) refine it |
+
+The app must listen on `$PORT` (3000). If the repo has a `package.json`, `npm install` runs automatically;
+the start command defaults to `node server.mjs`, then `npm start`, or whatever you pass with `--start`.
+Private repos authenticate through your stored `github` secret — the token is injected by the proxy and
+never touches the sandbox filesystem. (The shopper/analyst/builder prompts are tuned for a storefront,
+so this works best on shop-like front-ends.)
+
+### Serve mode (prompt-triggered, Daytona-style)
+
+`npm start -- --serve` starts the dashboard and **waits** — no run begins until you submit the form at
+**http://localhost:4000**: paste a repo URL (or leave it blank for the bundled shop), type a goal/prompt,
+pick variants + personas, and hit **Run A/B test**. You then watch the whole loop animate. Each new run
+tears down the previous run's sandboxes first, so they don't pile up.
 
 ### Live dashboard
 

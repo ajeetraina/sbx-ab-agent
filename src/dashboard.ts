@@ -30,6 +30,15 @@ interface Stage {
   label: string;
   status: 'pending' | 'active' | 'done';
 }
+export interface RunForm {
+  repo?: string;
+  branch?: string;
+  subdir?: string;
+  start?: string;
+  goal?: string;
+  variants?: string | number;
+  personas?: string | number;
+}
 interface State {
   goal: string;
   stages: Stage[];
@@ -38,6 +47,9 @@ interface State {
   armOrder: string[];
   winner?: string;
   done: boolean;
+  running: boolean;
+  canTrigger: boolean;
+  error?: string;
 }
 
 const STAGES: Omit<Stage, 'status'>[] = [
@@ -48,16 +60,21 @@ const STAGES: Omit<Stage, 'status'>[] = [
   { id: 'winner', label: 'Pick winner' },
 ];
 
+const freshState = (): State => ({
+  goal: '',
+  stages: STAGES.map((s) => ({ ...s, status: 'pending' })),
+  arms: {},
+  armOrder: [],
+  done: false,
+  running: false,
+  canTrigger: false,
+});
+
 class Dashboard {
-  private state: State = {
-    goal: '',
-    stages: STAGES.map((s) => ({ ...s, status: 'pending' })),
-    arms: {},
-    armOrder: [],
-    done: false,
-  };
+  private state: State = freshState();
   private clients = new Set<http.ServerResponse>();
   private server?: http.Server;
+  private trigger?: (form: RunForm) => Promise<void> | void;
 
   start(port = 4000): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -73,11 +90,44 @@ class Dashboard {
           req.on('close', () => this.clients.delete(res));
           return;
         }
+        if (req.url === '/run' && req.method === 'POST') {
+          this.handleRun(req, res);
+          return;
+        }
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
         res.end(PAGE);
       });
       this.server.on('error', reject);
       this.server.listen(port, () => resolve(`http://localhost:${port}`));
+    });
+  }
+
+  // Register the function that a form submission should run (serve mode).
+  onTrigger(fn: (form: RunForm) => Promise<void> | void) {
+    this.trigger = fn;
+    this.state.canTrigger = true;
+    this.broadcast();
+  }
+
+  private handleRun(req: http.IncomingMessage, res: http.ServerResponse) {
+    const reply = (code: number, body: object) => {
+      res.writeHead(code, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(body));
+    };
+    if (!this.trigger) return reply(400, { error: 'this dashboard is not in serve mode' });
+    if (this.state.running) return reply(409, { error: 'a run is already in progress' });
+    let raw = '';
+    req.on('data', (c) => { raw += c; if (raw.length > 1e6) req.destroy(); });
+    req.on('end', () => {
+      let form: RunForm = {};
+      try { form = raw ? JSON.parse(raw) : {}; } catch { return reply(400, { error: 'invalid JSON' }); }
+      this.state.running = true;
+      this.state.error = undefined;
+      this.broadcast();
+      reply(202, { ok: true });
+      Promise.resolve(this.trigger!(form))
+        .catch((e) => { this.state.error = String(e?.message ?? e); })
+        .finally(() => { this.state.running = false; this.broadcast(); });
     });
   }
 
@@ -141,6 +191,18 @@ class Dashboard {
   finish() {
     this.state.done = true;
     this.state.stages.forEach((s) => (s.status = 'done'));
+    this.broadcast();
+  }
+
+  // Clear everything for a new run, keeping the trigger/running flags intact.
+  reset() {
+    const { running, canTrigger } = this.state;
+    this.state = { ...freshState(), running, canTrigger };
+    this.broadcast();
+  }
+
+  error(message: string) {
+    this.state.error = message;
     this.broadcast();
   }
 }
@@ -212,11 +274,47 @@ const PAGE = /* html */ `<!doctype html>
   .ses .pname { flex:1; color:var(--dim); } .ses .sc { font-weight:800; } .ses .q { color:var(--dim); font-style:italic; }
   .foot { text-align:center; color:var(--dim); font-size:11px; margin-top:26px; }
   .goal { background:var(--panel2); border:1px solid var(--border); border-radius:9px; padding:10px 13px; color:var(--dim); font-size:12.5px; line-height:1.5; }
+  .form { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .form .full { grid-column:1 / -1; }
+  .form label { display:block; font-size:11px; color:var(--dim); margin-bottom:5px; text-transform:uppercase; letter-spacing:.5px; }
+  .form input, .form textarea { width:100%; background:var(--panel2); border:1px solid var(--border); border-radius:8px;
+    color:var(--text); font-family:inherit; font-size:13px; padding:9px 11px; }
+  .form input:focus, .form textarea:focus { outline:none; border-color:var(--blue); box-shadow:0 0 0 1px var(--blue); }
+  .form textarea { resize:vertical; min-height:46px; }
+  .form .row3 { display:grid; grid-template-columns:1fr 110px 110px; gap:12px; }
+  .runbtn { background:var(--blue); color:#02112e; font-weight:800; font-family:inherit; font-size:14px; border:none;
+    border-radius:9px; padding:11px 20px; cursor:pointer; letter-spacing:.5px; }
+  .runbtn:disabled { opacity:.5; cursor:not-allowed; }
+  .runbtn.running::before { content:"⟳ "; display:inline-block; animation:spin 1s linear infinite; }
+  .hint { font-size:11px; color:var(--dim); margin-top:2px; }
+  .err { background:rgba(240,109,109,.14); border:1px solid rgba(240,109,109,.5); color:var(--red);
+    border-radius:9px; padding:10px 13px; font-size:12.5px; margin-top:12px; display:none; }
 </style>
 </head>
 <body>
   <h1>sbx A/B agent <span class="arrow">▸</span> live</h1>
   <p class="sub">Simulated shoppers find the friction, Codex builds fixes in parallel sandboxes, the same shoppers re-test, the winner comes back ready for a PR.</p>
+
+  <div class="section" id="trigger-section" style="display:none"><span class="tag">NEW RUN</span>
+    <div class="form">
+      <div class="full">
+        <label>GitHub repo URL <span style="text-transform:none">(optional — blank uses the bundled shop)</span></label>
+        <input id="f-repo" placeholder="https://github.com/you/your-shop" />
+        <div class="hint">The app should serve on $PORT (3000). Use subdir if it lives in a subfolder (e.g. app).</div>
+      </div>
+      <div><label>Branch (optional)</label><input id="f-branch" placeholder="main" /></div>
+      <div><label>Subdir (optional)</label><input id="f-subdir" placeholder="app" /></div>
+      <div class="full"><label>Goal / prompt</label><textarea id="f-goal" placeholder="What should shoppers be able to do more easily?"></textarea></div>
+      <div class="full">
+        <div class="row3">
+          <div style="align-self:end"><button class="runbtn" id="f-run">Run A/B test</button></div>
+          <div><label>Variants</label><input id="f-variants" type="number" min="1" max="4" value="2" /></div>
+          <div><label>Personas</label><input id="f-personas" type="number" min="1" max="3" value="3" /></div>
+        </div>
+      </div>
+    </div>
+    <div class="err" id="err"></div>
+  </div>
 
   <div class="section"><span class="tag">GOAL</span><div class="goal" id="goal">waiting for run…</div></div>
   <div class="section"><span class="tag">PIPELINE</span><div class="pipeline" id="pipeline"></div></div>
@@ -258,7 +356,35 @@ function render(s) {
     return '<div class="arm ' + (a.winner?'winner ':'') + (a.status==='failed'?'failed':'') + '"><div class="top"><div><span class="id">' + esc(a.id) + crown + '</span><div class="title">' + esc(a.title) + '</div></div>' + badge + '</div>' + url + hyp + note + metrics + sessions + '</div>';
   }).join('');
 
-  $('foot').textContent = s.done ? (s.winner ? 'Done — winner: ' + s.winner : 'Done') : 'live — updating as the run progresses';
+  // Trigger form (serve mode only)
+  $('trigger-section').style.display = s.canTrigger ? '' : 'none';
+  if (s.canTrigger) {
+    const btn = $('f-run');
+    btn.disabled = !!s.running;
+    btn.classList.toggle('running', !!s.running);
+    btn.textContent = s.running ? 'Running…' : 'Run A/B test';
+    ['f-repo','f-branch','f-subdir','f-goal','f-variants','f-personas'].forEach((id) => { $(id).disabled = !!s.running; });
+  }
+  const err = $('err');
+  if (s.error) { err.style.display = 'block'; err.textContent = 'Error: ' + s.error; } else { err.style.display = 'none'; }
+
+  const running = s.running;
+  $('foot').textContent = running ? 'running — updating live…'
+    : s.done ? (s.winner ? 'Done — winner: ' + s.winner : 'Done')
+    : s.canTrigger ? 'idle — submit a repo + goal above to start a run'
+    : 'live — updating as the run progresses';
+}
+
+async function submitRun() {
+  const body = {
+    repo: $('f-repo').value, branch: $('f-branch').value, subdir: $('f-subdir').value,
+    goal: $('f-goal').value, variants: $('f-variants').value, personas: $('f-personas').value,
+  };
+  $('f-run').disabled = true;
+  try {
+    const r = await fetch('/run', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body) });
+    if (!r.ok) { const j = await r.json().catch(()=>({})); $('err').style.display='block'; $('err').textContent = 'Error: ' + (j.error || r.status); $('f-run').disabled = false; }
+  } catch (e) { $('err').style.display='block'; $('err').textContent = 'Error: ' + e.message; $('f-run').disabled = false; }
 }
 
 function connect() {
@@ -266,6 +392,7 @@ function connect() {
   es.onmessage = (e) => render(JSON.parse(e.data));
   es.onerror = () => { $('foot').textContent = 'disconnected — the run process has exited'; };
 }
+document.getElementById('f-run').addEventListener('click', submitRun);
 connect();
 </script>
 </body>
