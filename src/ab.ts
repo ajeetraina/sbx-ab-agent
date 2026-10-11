@@ -10,6 +10,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
 import type { Sandbox, Sandboxes } from '@docker/sandboxes';
 import { analystPrompt, builderPrompt, DEFAULT_PERSONAS, shopperPrompt, type Persona } from './prompts.js';
+import { dash } from './dashboard.js';
 import {
   APP_DIR, banner, color, connect, destroy, extractJson, launchShop, log, openaiSecret, runAgent,
 } from './sbx.js';
@@ -30,6 +31,8 @@ const { values: opts } = parseArgs({
     variants: { type: 'string', default: '2' },
     personas: { type: 'string', default: '3' },
     cleanup: { type: 'boolean', default: false },
+    dashboard: { type: 'boolean', default: true },
+    'dashboard-port': { type: 'string', default: '4000' },
   },
 });
 const GOAL = opts.goal!;
@@ -40,12 +43,15 @@ async function simulate(sandbox: Sandbox, armId: string, personas: Persona[]): P
   return Promise.all(
     personas.map(async (p) => {
       log(`${armId}:${p.id}`, 'shopping...');
+      dash.session(armId, p.id, { status: 'shopping' });
       try {
         const s = extractJson<Session>(await runAgent(sandbox, shopperPrompt(p, GOAL), 300_000));
         log(`${armId}:${p.id}`, `score ${s.score}/10, ${s.completed ? 'completed' : 'gave up'}, ~${s.steps} steps. "${s.quote}"`);
+        dash.session(armId, p.id, { status: 'done', score: s.score, completed: s.completed, steps: s.steps, quote: s.quote });
         return s;
       } catch (e) {
         log(`${armId}:${p.id}`, `session failed: ${(e as Error).message}`);
+        dash.session(armId, p.id, { status: 'failed' });
         return { persona: p.id, completed: false, steps: 0, score: 0, journey: [], friction: ['session failed'], quote: '' };
       }
     }),
@@ -64,18 +70,33 @@ function stats(sessions: Session[]) {
 async function runVariant(client: Sandboxes, secret: string, v: Variant): Promise<Arm> {
   const tag = `${v.id}`;
   log(tag, `launching sandbox for "${v.title}"`);
+  dash.arm(v.id, { status: 'deploying' });
   const { sandbox, url } = await launchShop(client, `ab-${v.id}-${slug(v.title)}`, secret, 'app');
   log(tag, `live at ${url}`);
+  dash.arm(v.id, { status: 'building', url });
   log(tag, 'Codex is building the variant...');
   const buildNotes = await runAgent(sandbox, builderPrompt(v), 900_000);
-  log(tag, `built. ${buildNotes.split('\n').filter(Boolean).pop()?.slice(0, 160) ?? ''}`);
+  const note = buildNotes.split('\n').filter(Boolean).pop()?.slice(0, 160) ?? '';
+  log(tag, `built. ${note}`);
+  dash.arm(v.id, { status: 'built', buildNote: note });
   const sessions = await simulate(sandbox, tag, PERSONAS);
-  return { id: v.id, title: v.title, url, sandbox, sessions, buildNotes, ...stats(sessions) };
+  const st = stats(sessions);
+  dash.arm(v.id, { status: 'scored', ...st });
+  return { id: v.id, title: v.title, url, sandbox, sessions, buildNotes, ...st };
 }
 
 async function main() {
   banner('sbx A/B agent');
   log('goal', GOAL);
+  if (opts.dashboard) {
+    try {
+      const url = await dash.start(Number(opts['dashboard-port']));
+      dash.setGoal(GOAL);
+      log('dashboard', `live view at ${url}`);
+    } catch (e) {
+      log('dashboard', `could not start dashboard: ${(e as Error).message}`);
+    }
+  }
   const client = await connect();
   const sandboxes: Sandbox[] = [];
   try {
@@ -83,38 +104,53 @@ async function main() {
 
     // 1. Baseline
     banner('1. Deploy baseline (A)');
+    dash.stage('baseline');
+    dash.arm('A', { title: 'Baseline', status: 'deploying' });
     const base = await launchShop(client, 'ab-A-baseline', secret, 'app');
     sandboxes.push(base.sandbox);
     log('A', `live at ${base.url}`);
+    dash.arm('A', { status: 'live', url: base.url });
 
     // 2. Simulated users on baseline
     banner('2. Simulated shoppers on A');
+    dash.stage('shop-a');
     const baseSessions = await simulate(base.sandbox, 'A', PERSONAS);
     const A: Arm = { id: 'A', title: 'Baseline', url: base.url, sandbox: base.sandbox, sessions: baseSessions, ...stats(baseSessions) };
+    dash.arm('A', { status: 'scored', ...stats(baseSessions) });
 
     // 3. Analyst proposes variants
     banner('3. Analyse friction, propose variants');
+    dash.stage('analyze');
     const plan = extractJson<{ summary: string; variants: Variant[] }>(
       await runAgent(base.sandbox, analystPrompt(GOAL, baseSessions, N_VARIANTS)),
     );
     const variants = plan.variants.slice(0, N_VARIANTS);
     log('analyst', plan.summary);
-    for (const v of variants) log('analyst', `${v.id}: ${v.title} -- ${v.hypothesis}`);
+    dash.setSummary(plan.summary);
+    for (const v of variants) {
+      log('analyst', `${v.id}: ${v.title} -- ${v.hypothesis}`);
+      dash.arm(v.id, { title: v.title, status: 'proposed', hypothesis: v.hypothesis });
+    }
 
     // 4 + 5. Build and re-test every variant in parallel, one sandbox each
     banner(`4. Build + re-test ${variants.length} variants in parallel`);
+    dash.stage('build');
     const settled = await Promise.allSettled(variants.map((v) => runVariant(client, secret, v)));
     const arms: Arm[] = [A];
     settled.forEach((r, i) => {
       if (r.status === 'fulfilled') { arms.push(r.value); sandboxes.push(r.value.sandbox); }
-      else log(variants[i].id, `variant failed: ${(r.reason as Error).message}`);
+      else { log(variants[i].id, `variant failed: ${(r.reason as Error).message}`); dash.arm(variants[i].id, { status: 'failed' }); }
     });
 
     // 6. Pick a winner
     banner('5. Results');
+    dash.stage('winner');
     const ranked = [...arms].sort((a, b) => b.avgScore - a.avgScore || b.completion - a.completion || a.avgSteps - b.avgSteps);
     const winner = ranked[0];
     printTable(arms, winner, A);
+    for (const a of arms) dash.arm(a.id, { lift: a.id === 'A' ? undefined : lift(a.avgScore, A.avgScore) });
+    dash.setWinner(winner.id);
+    dash.finish();
 
     // 7. Pull the winner's code back so it can become a PR
     await mkdir('results/winner', { recursive: true });
@@ -131,6 +167,9 @@ async function main() {
     if (!opts.cleanup) {
       console.log(`\n${color.bold}Sandboxes are still running so you can click through each arm live.${color.reset}`);
       console.log('Delete them with: npm run cleanup');
+      if (opts.dashboard) {
+        console.log(`${color.bold}Live dashboard: http://localhost:${opts['dashboard-port']}${color.reset}  (Ctrl+C to stop it)`);
+      }
     }
   } finally {
     if (opts.cleanup) {
@@ -139,6 +178,9 @@ async function main() {
       log('cleanup', `deleted ${sandboxes.length} sandboxes`);
     }
     await client.close();
+    // On cleanup, stop the dashboard so the process can exit. Otherwise leave it serving
+    // (the listening socket keeps the process alive) so you can keep watching the result.
+    if (opts.cleanup) dash.stop();
   }
 }
 
